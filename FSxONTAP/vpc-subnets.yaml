@@ -1,0 +1,134 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Creates a VPC with two private subnets."
+Parameters:
+  VPCName:
+    Description: The name of the VPC being created.
+    Type: String
+    Default: "FSxONTAP-EKS-VPC"
+  
+Mappings:
+  SubnetConfig:
+    VPC:
+      CIDR: "10.0.0.0/16"
+    Private1:
+      CIDR: "10.0.0.0/24"
+    Private2:
+      CIDR: "10.0.1.0/24"
+
+    # This mapping accounts for the scenario when certain AZs
+    # are not available to use (this differs on a per account
+    # per customer basis). E.g., if the 'b' AZ is not available
+    # in a specific region in one's account then updating the
+    # list contained in the mapping below here will allow a
+    # different AZ to be chosen.
+  AZRegions:
+    ap-northeast-1:
+      AZs: ["a", "b"]
+    ap-northeast-2:
+      AZs: ["a", "b"]
+    ap-south-1:
+      AZs: ["a", "b"]
+    ap-southeast-1:
+      AZs: ["a", "b"]
+    ap-southeast-2:
+      AZs: ["a", "b"]
+    ca-central-1:
+      AZs: ["a", "b"]
+    eu-central-1:
+      AZs: ["a", "b"]
+    eu-west-1:
+      AZs: ["a", "b"]
+    eu-west-2:
+      AZs: ["a", "b"]
+    sa-east-1:
+      AZs: ["a", "b"]
+    us-east-1:
+      AZs: ["a", "b"]
+    us-east-2:
+      AZs: ["a", "b"]
+    us-west-1:
+      AZs: ["a", "b"]
+    us-west-2:
+      AZs: ["a", "b"]
+
+Resources:
+  VPC:
+    Type: "AWS::EC2::VPC"
+    Properties:
+      EnableDnsSupport: "true"
+      EnableDnsHostnames: "true"
+      CidrBlock:
+        Fn::FindInMap:
+          - "SubnetConfig"
+          - "VPC"
+          - "CIDR"
+      Tags:
+        -
+          Key: "Name"
+          Value: !Ref 'VPCName'
+
+  PrivateSubnet1:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId:
+        Ref: "VPC"
+      AvailabilityZone:
+        Fn::Sub:
+          - "${AWS::Region}${AZ}"
+          - AZ: !Select [ 0, !FindInMap [ "AZRegions", !Ref "AWS::Region", "AZs" ] ]
+      CidrBlock:
+        Fn::FindInMap:
+          - "SubnetConfig"
+          - "Private1"
+          - "CIDR"
+      Tags:
+        -
+          Key: "Name"
+          Value: !Join
+            - ''
+            - - !Ref "VPCName"
+              - '-private-'
+              - !Select [ 0, !FindInMap [ "AZRegions", !Ref "AWS::Region", "AZs" ] ]
+
+  PrivateSubnet2:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId:
+        Ref: "VPC"
+      AvailabilityZone:
+        Fn::Sub:
+          - "${AWS::Region}${AZ}"
+          - AZ: !Select [ 1, !FindInMap [ "AZRegions", !Ref "AWS::Region", "AZs" ] ]
+      CidrBlock:
+        Fn::FindInMap:
+          - "SubnetConfig"
+          - "Private2"
+          - "CIDR"
+      Tags:
+        -
+          Key: "Name"
+          Value: !Join
+            - ''
+            - - !Ref "VPCName"
+              - '-private-'
+              - !Select [ 1, !FindInMap [ "AZRegions", !Ref "AWS::Region", "AZs" ] ]
+Outputs:
+  VPCId:
+    Description: "VPCId of VPC"
+    Value:
+      Ref: "VPC"
+    Export:
+      Name: !Sub "${AWS::Region}-${AWS::StackName}-VPC"
+  PrivateSubnet1:
+    Description: "SubnetId of private subnet 1"
+    Value:
+      Ref: "PrivateSubnet1"
+    Export:
+      Name: !Sub "${AWS::Region}-${AWS::StackName}-PrivateSubnet1"
+  PrivateSubnet2:
+    Description: "SubnetId of private subnet 2"
+    Value:
+      Ref: "PrivateSubnet2"
+    Export:
+      Name: !Sub "${AWS::Region}-${AWS::StackName}-PrivateSubnet2"

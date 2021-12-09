@@ -1,0 +1,25 @@
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: FSxONTAP-eks
+  region: us-east-1
+
+vpc:
+  id: "vpc-08654c1c94b63b4a1"
+  subnets:
+    public:
+      us-east-1a: { id: subnet-0f7378fae0a395fff }
+      us-east-1b: { id: subnet-04440e3e98c8eb8c4 }
+
+managedNodeGroups:
+  - name: ng-1-workers
+    labels: { role: workers }
+    instanceType: m5.xlarge
+    desiredCapacity: 2
+    ssh:
+      enableSsm: true
+
+cloudWatch:
+  clusterLogging:
+    enableTypes: ["audit", "authenticator", "controllerManager"]
