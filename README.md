@@ -6,11 +6,9 @@ Amazon FSx for NetApp ONTAP is a fully managed service that provides highly reli
 ## About the Cloudformation templates
 There are two cloudformation templates provided in this repo:
 
-**vpc-subnets.yaml**
-This creates a VPC with two private subnets, where the FSxONTAP file system will run on.
+**vpc-subnets.yaml**  This creates a VPC with two private subnets, where the FSxONTAP file system will run on.
 
-**FSxONTAP.yaml**
-This creates a FSxONTAP file system, with HA spanning across two private subnets.It allows you to put parameters such as StorageCapacity, ThroughputCapacity, FsxAdminPassword etc., to customized your file system.
+**FSxONTAP.yaml**  This creates a FSxONTAP file system, with HA spanning across two private subnets.It allows you to put parameters such as StorageCapacity, ThroughputCapacity, FsxAdminPassword etc., to customized your file system.
 
 ## Architecture Diagram
 
