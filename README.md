@@ -14,5 +14,4 @@ This creates a FSxONTAP file system, with HA spanning across two private subnets
 
 ## Architecture Diagram
 
-
-
+![Uploading Screenshot 2022-01-06 at 11.54.21 AM.png…]()
