@@ -1,0 +1,220 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy of
+# this software and associated documentation files (the "Software"), to deal in
+# the Software without restriction, including without limitation the rights to
+# use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+# the Software, and to permit persons to whom the Software is furnished to do so.
+# 
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+# FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+# COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+# IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+# CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+Description: Configure custom backup schedule for your Amazon FSx for NetApp ONTAP file system volumes.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+    - Label:
+        default: FSx Custom Backup Scheduler Parameters
+      Parameters:
+        - ResourceID
+        - CronSchedule
+        - RetainDays
+        - BackupTagName
+    - Label:
+        default: Backup Notifications
+      Parameters:
+        - Email
+        - SuccessNotification
+        
+    ParameterLabels:
+      FileSystemIds:
+        default: "Filesystem ID or Volume ID"
+      CronSchedule:
+        default: "CRON schedule pattern for backups (default is every 6 hours)"
+      RetainDays:
+        default: "Backup retention (days)"
+      BackupTagName:
+        default: "Name for backups"
+      SuccessNotification:
+        default: "Backup Notification (Yes/No)"
+      Email: 
+        default: "Email address"
+
+Parameters:
+  # The FSx for ONTAP file system IDs for which you want to manage a custom backup schedule
+  ResourceID:
+    Description: Amazon FSx for NetApp ONTAP file system ID or Volume ID
+    Type: String
+    AllowedPattern: "^fs(vol-|-)[A-Za-z0-9]+"
+  # Schedule for creating backups (and purging expired)
+  CronSchedule:
+    Description: CRON schedule for backups (default every 6 hours)
+    Type: String
+    Default: "0 0/6 * * ? *"
+
+  # Number of days of backups you want to retain
+  RetainDays:
+    Description: Number of days to retain custom-scheduled backups
+    Type: Number
+    Default: 7
+  # Email for notifications
+  Email:
+    Description: Email for backup notifications
+    Type: String
+  # Value of backup Name tag (shows in Name column in backups list in console)
+  BackupTagName:
+    Description: The name of backups (shown in FSx console)
+    Type: String
+    Default: "User-scheduled backup"
+  # If customer wants notification for successful backups
+  SuccessNotification:
+    Description: Do you want to be notified for successful backups? *for failure, you will always be notified
+    Type: String
+    AllowedValues:
+      - "Yes"
+      - "No"
+    Default: "Yes"
+
+Resources:
+  SnsKey:
+    Type: 'AWS::KMS::Key'
+    Properties:
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+          Action: 'kms:*'
+          Resource: '*'
+
+        - Effect: Allow
+          Principal:
+            Service: !Sub 'sns.amazonaws.com'
+          Action:
+          - 'kms:Encrypt'
+          - 'kms:Decrypt'
+          - 'kms:ReEncrypt*'
+          - 'kms:GenerateDataKey*'
+          - 'kms:CreateGrant'
+          - 'kms:ListGrants'
+          - 'kms:DescribeKey'
+          Resource: '*'
+
+        - Effect: Allow
+          Principal:
+            Service: !Sub 'cloudwatch.amazonaws.com'
+          Action:
+          - 'kms:Decrypt'
+          - 'kms:GenerateDataKey*'
+          Resource: '*'
+
+        - Effect: Allow
+          Principal: 
+            Service: !Sub 'lambda.amazonaws.com'
+          Action:
+          - 'kms:Decrypt'
+          - 'kms:GenerateDataKey*'
+          Resource: '*'
+
+        - Effect: Allow
+          Principal: 
+            AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:role/${BackupManagerRole}'
+          Action:
+          - 'kms:Decrypt'
+          - 'kms:GenerateDataKey*'
+          Resource: '*'
+
+  SNSTopic: 
+    DependsOn: SnsKey
+    Type: AWS::SNS::Topic
+    Properties: 
+      DisplayName: !Sub ${AWS::StackName}-custom-backup-notification
+      Subscription:
+      - Endpoint: !Ref Email
+        Protocol: "email"
+      TopicName: !Sub ${AWS::StackName}-custom-backup-notification
+      KmsMasterKeyId: !Ref SnsKey
+
+  BackupManager:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${AWS::StackName}-custom-backup-manager
+      Description: FSx Scheduled Backup Manager creates backups and deletes expired backups
+      Environment:
+        Variables:
+          backup_retention_days: !Sub ${RetainDays}
+          topic_arn: !Sub ${SNSTopic}
+          backup_tag_name: !Sub ${BackupTagName}
+      Handler: lambda_function.lambda_handler
+      Role: !Sub ${BackupManagerRole.Arn}
+      Code:
+         S3Bucket: !Sub solution-references-${AWS::Region}
+         S3Key: 'fsx/backup/OntapBackupManagerV2.0.zip'
+      Runtime: python3.6
+      Timeout: 300
+
+  BackupStartEventLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Sub ${BackupManager}
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+
+
+  BackupManagerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub BackupManager-Role-${AWS::StackName}-${AWS::Region}
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+          Action: sts:AssumeRole
+      Path: /
+      Policies:
+      - PolicyName: !Sub BackupManager-Policy-${AWS::StackName}-${AWS::Region}
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/*"
+          - Effect: Allow
+            Action:
+            - fsx:CreateBackup
+            - fsx:DescribeBackups
+            - fsx:DescribeVolumes
+            - fsx:DeleteBackup
+            - fsx:TagResource
+            Resource: "*"
+          - Effect: Allow
+            Action:
+            - sns:Publish
+            Resource: !Sub arn:aws:sns:${AWS::Region}:${AWS::AccountId}:${AWS::StackName}-custom-backup-notification
+  #
+  # Cloudwatch events/rule resources
+  # [FSxBackupStartEvent, BackupStartEventLambdaPermission]
+  #
+  FSxBackupStartEvent:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Schedule to run FSx user-initiated backup and purge of backups older than retention period
+      ScheduleExpression: !Sub 'cron(${CronSchedule})'
+      State: ENABLED
+      Targets:
+        - Arn: !Sub ${BackupManager.Arn}
+          Id: BackupManagerEvent1
+          Input: !Sub '{"start-backup":"true","purge-backups":"true","resource-id":"${ResourceID}","notify_on_success":"${SuccessNotification}"}'
